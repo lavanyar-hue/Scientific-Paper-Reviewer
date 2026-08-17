@@ -29,6 +29,13 @@ from app.utils import observability
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Track cancellation requests: job_id -> True means cancel requested
+_cancel_flags: dict[str, bool] = {}
+
+
+def is_cancelled(job_id: str) -> bool:
+    return _cancel_flags.get(job_id, False)
+
 
 def _estimate_review_time(paper_content: str, model_config: dict) -> dict:
     """
@@ -129,6 +136,15 @@ def _run_review_task(job_id: str, db_url: str, model_config_dict: dict):
         db.commit()
         manager.broadcast_sync(job_id, {"event": "status", "job_id": job_id, "data": {"status": "processing"}})
 
+        # Check if already cancelled before starting
+        if is_cancelled(job_id):
+            job.status = "failed"
+            job.error_message = "Cancelled by user."
+            job.completed_at = datetime.utcnow()
+            db.commit()
+            manager.broadcast_sync(job_id, {"event": "job_failed", "job_id": job_id, "data": {"error_message": "Cancelled by user."}})
+            return
+
         # ── Integrity checks run in a separate thread, parallel with review pipeline ──
         integrity_report_str = None
         integrity_future_result = {}
@@ -210,6 +226,15 @@ def _run_review_task(job_id: str, db_url: str, model_config_dict: dict):
                 logger.warning("Failed to save integrity check: %s", exc)
 
         # ── Run LangGraph ─────────────────────────────────────────────────────
+        # Check cancellation one more time before the expensive LLM calls start
+        if is_cancelled(job_id):
+            job.status = "failed"
+            job.error_message = "Cancelled by user."
+            job.completed_at = datetime.utcnow()
+            db.commit()
+            manager.broadcast_sync(job_id, {"event": "job_failed", "job_id": job_id, "data": {"error_message": "Cancelled by user."}})
+            return
+
         from app.agents.orchestrator import run_review
 
         final_state = run_review(
@@ -328,6 +353,29 @@ async def create_review(
     # Attach estimate to response via extra field
     job_out = ReviewJobOut.from_orm(job)
     return job_out
+
+
+@router.post("/review/{job_id}/cancel")
+async def cancel_review(job_id: str, db: Session = Depends(get_db)):
+    """Cancel a running review job."""
+    job = db.query(ReviewJob).filter(ReviewJob.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "Review job not found.")
+    if job.status not in ("queued", "processing"):
+        raise HTTPException(400, f"Job is already {job.status} — cannot cancel.")
+
+    _cancel_flags[job_id] = True
+    job.status = "failed"
+    job.error_message = "Cancelled by user."
+    job.completed_at = datetime.utcnow()
+    db.commit()
+
+    manager.broadcast_sync(job_id, {
+        "event": "job_failed",
+        "job_id": job_id,
+        "data": {"error_message": "Cancelled by user."},
+    })
+    return {"ok": True, "message": "Review cancelled."}
 
 
 @router.get("/review/{job_id}/estimate")

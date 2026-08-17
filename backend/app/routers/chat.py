@@ -30,6 +30,14 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 # ── LLM client cache — build once per process, reuse across requests ──────────
 _chat_llm_cache: Optional[Any] = None
 _chat_llm_lock = threading.Lock()
+_chat_llm_model_key: Optional[str] = None  # track which model is cached
+
+
+def _reset_chat_llm_cache():
+    """Force rebuild of LLM cache on next request (e.g. after config change)."""
+    global _chat_llm_cache, _chat_llm_model_key
+    _chat_llm_cache = None
+    _chat_llm_model_key = None
 
 
 # ── Request schemas ────────────────────────────────────────────────────────────
@@ -75,40 +83,33 @@ def _retrieve_for_chat(paper_id: str, query: str, k: int = 5) -> str:
 
 def _build_system(paper: Optional[Paper], job: Optional[ReviewJob], rag_context: str = "") -> str:
     parts = [
-        "You are PaperLens Research Assistant — a knowledgeable AI helping researchers "
-        "understand and analyse scientific papers. You are concise, precise, and always "
-        "ground your answers in the paper's actual content. Never fabricate data, "
-        "citations, or results not present in the paper.",
+        "You are PaperLens Research Assistant. Be concise and direct — "
+        "give short, clear answers. No bullet points unless specifically asked. "
+        "No markdown headers. Just plain conversational text. "
+        "Max 3-4 sentences for simple questions, a short paragraph for complex ones. "
+        "Ground answers in the paper's actual content only. Never fabricate.",
     ]
 
     if paper:
-        parts.append(f"\n## Current Paper\nTitle: {paper.title or 'Unknown'}")
+        parts.append(f"\nPaper: {paper.title or 'Unknown'}")
         if paper.authors:
             parts.append(f"Authors: {paper.authors}")
-        if paper.research_field:
-            parts.append(f"Field: {paper.research_field}")
         if paper.abstract:
-            parts.append(f"\nAbstract:\n{paper.abstract}")
+            parts.append(f"Abstract: {paper.abstract[:500]}")
 
-        # Use RAG-retrieved content if available; fall back to truncated full text
         if rag_context:
-            parts.append(
-                f"\n## Relevant Paper Excerpts (retrieved for this query):\n{rag_context}"
-            )
+            parts.append(f"\nRelevant excerpts:\n{rag_context}")
         elif paper.content:
-            excerpt = paper.content[:10_000]
-            if len(paper.content) > 10_000:
-                excerpt += "\n\n[...paper truncated...]"
-            parts.append(f"\nFull Paper Text (excerpt):\n{excerpt}")
+            excerpt = paper.content[:4000]
+            if len(paper.content) > 4000:
+                excerpt += "\n[...truncated...]"
+            parts.append(f"\nPaper text:\n{excerpt}")
 
     if job and job.final_review:
         fr = job.final_review
         parts.append(
-            f"\n## AI Review Verdict (completed)\n"
-            f"Recommendation: {fr.get('final_recommendation', 'N/A')}\n"
-            f"Overall Score: {fr.get('final_scores', {}).get('overall', 'N/A')}/10\n"
-            f"Confidence: {fr.get('confidence', 'N/A')}\n"
-            f"Summary: {fr.get('consolidated_summary', '')}"
+            f"\nReview result: {fr.get('final_recommendation','N/A')}, "
+            f"score {fr.get('final_scores',{}).get('overall','N/A')}/10"
         )
 
     parts.append(
@@ -125,36 +126,41 @@ def _build_system(paper: Optional[Paper], job: Optional[ReviewJob], rag_context:
 def _get_chat_llm() -> Any:
     """
     Return a cached LangChain chat model. Built once per process, reused for all requests.
-    Priority: Anthropic Haiku (fast) → Groq (very fast) → Gemini Flash → Mistral → OpenAI mini
+    Auto-invalidates if the GROQ_API_KEY env var changes (e.g. after restart).
     """
-    global _chat_llm_cache
-    if _chat_llm_cache is not None:
+    global _chat_llm_cache, _chat_llm_model_key
+    # Use current chat key as cache key — if it changed, rebuild
+    current_key = (os.environ.get("GROQ_API_KEY_CHAT") or os.environ.get("GROQ_API_KEY", ""))[:8]
+    if _chat_llm_cache is not None and _chat_llm_model_key == current_key:
         return _chat_llm_cache
 
     with _chat_llm_lock:
-        # Double-checked locking
-        if _chat_llm_cache is not None:
+        if _chat_llm_cache is not None and _chat_llm_model_key == current_key:
             return _chat_llm_cache
 
         llm = _build_chat_llm()
         _chat_llm_cache = llm
+        _chat_llm_model_key = current_key
         return llm
 
 
 def _build_chat_llm() -> Any:
     """Build and return the best available LLM for chat."""
 
-    # Groq is fastest for chat (very low latency)
-    if os.environ.get("GROQ_API_KEY", "") not in ("", "your_groq_api_key_here"):
+    # Groq — use dedicated chat key (separate from review agents) to avoid TPM contention
+    chat_key = os.environ.get("GROQ_API_KEY_CHAT") or os.environ.get("GROQ_API_KEY", "")
+    if chat_key not in ("", "your_groq_api_key_here"):
         try:
-            from langchain_groq import ChatGroq
-            llm = ChatGroq(
-                model="llama-3.1-8b-instant",
-                api_key=os.environ["GROQ_API_KEY"],
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(
+                model="qwen/qwen3.6-27b",
+                api_key=chat_key,
+                base_url="https://api.groq.com/openai/v1",
                 max_tokens=1500,
                 temperature=0.4,
+                timeout=45,
             )
-            logger.info("Chat LLM: Groq llama-3.1-8b-instant")
+            logger.info("Chat LLM: Groq qwen/qwen3.6-27b (dedicated chat key)")
             return llm
         except Exception as e:
             logger.warning("Groq chat init failed: %s", e)

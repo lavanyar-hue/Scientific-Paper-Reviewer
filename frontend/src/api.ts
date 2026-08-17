@@ -148,6 +148,7 @@ export interface ActivityEvent {
   subtitle: string;
   user: string;
   timestamp: string;
+  job_id?:string | null;
 }
 
 export interface ActivityGroup {
@@ -292,6 +293,14 @@ export async function startReview(paperId: string, modelConfig?: ModelConfig): P
     model_config: modelConfig,
   });
   return res.data;
+}
+
+export async function cancelReview(jobId: string): Promise<void> {
+  await api.post(`/api/review/${jobId}/cancel`);
+}
+
+export async function deletePaper(paperId: string): Promise<void> {
+  await api.delete(`/api/papers/${paperId}`);
 }
 
 export async function getReview(jobId: string): Promise<ReviewJob> {

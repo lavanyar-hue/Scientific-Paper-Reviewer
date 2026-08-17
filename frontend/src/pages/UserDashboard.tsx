@@ -5,7 +5,7 @@ import {
   Clock, Bot, Search, RefreshCw, AlertCircle, Loader2, Star, Folder, Users,
 } from 'lucide-react';
 import {
-  getUserStats, getDashboardPapers, getHistory, getToken,
+  getUserStats, getDashboardPapers, getHistory, getToken, deletePaper,
   type UserStats, type DashboardPaper, type ReviewJobSummary,
 } from '../api';
 import { useAuth } from '../components/ui/Layout';
@@ -244,13 +244,20 @@ export default function UserDashboard() {
 
 function formatRelativeTime(iso: string): string {
   if (!iso) return '—';
-  const diff = Date.now() - new Date(iso).getTime();
+  // Parse as UTC and convert to IST (UTC+5:30)
+  const utcMs = new Date(iso).getTime();
+  const istMs = utcMs + (5.5 * 60 * 60 * 1000);
+  const diff = Date.now() - utcMs; // relative time uses actual elapsed time
   const mins = Math.floor(diff / 60_000);
   if (mins < 1) return 'Just now';
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  // For older items show IST date
+  const d = new Date(istMs);
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
 }
 
 function statusColors(status: string) {
@@ -277,7 +284,40 @@ function progressGradient(status: string) {
 
 function PaperRow({ paper, index, navigate }: { paper: DashboardPaper; index: number; navigate: any }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const sc = statusColors(paper.status);
+
+  const handleOpenDetails = () => {
+    setMenuOpen(false);
+    if (paper.job_id) navigate(`/review/${paper.job_id}`);
+  };
+
+  const handleDownloadPdf = () => {
+    setMenuOpen(false);
+    // Create a text export of the paper details as a downloadable file
+    const content = `Title: ${paper.title}\nAuthors: ${paper.authors}\nField: ${paper.tag}\nStatus: ${paper.status}\nScore: ${paper.score ?? 'N/A'}/10\nLast Updated: ${paper.last_updated}`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${paper.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDelete = async () => {
+    setMenuOpen(false);
+    if (!window.confirm(`Delete "${paper.title}"? This will also remove all its reviews.`)) return;
+    setDeleting(true);
+    try {
+      await deletePaper(paper.id);
+      // Reload the page to refresh the list
+      window.location.reload();
+    } catch (e: any) {
+      alert(`Failed to delete: ${e?.response?.data?.detail || e.message}`);
+      setDeleting(false);
+    }
+  };
 
   return (
     <tr className="transition-all group animate-fade-in"
@@ -369,23 +409,27 @@ function PaperRow({ paper, index, navigate }: { paper: DashboardPaper; index: nu
           <div className="absolute right-8 top-10 w-44 rounded-xl shadow-2xl z-20 py-1 text-left overflow-hidden"
             style={{ background: '#13151f', border: '1px solid rgba(99,102,241,0.2)' }}>
             {[
-              { icon: <Search size={12}/>, label: 'Open Details', action: () => {} },
-              { icon: <Download size={12}/>, label: 'Download PDF', action: () => {} },
-              { icon: <Share2 size={12}/>, label: 'Share', action: () => {} },
+              { icon: <Search size={12}/>, label: 'Open Details', action: handleOpenDetails, disabled: !paper.job_id },
+              { icon: <Download size={12}/>, label: 'Download PDF', action: handleDownloadPdf, disabled: false },
+              { icon: <Share2 size={12}/>, label: 'Share', action: () => {
+                navigator.clipboard?.writeText(window.location.origin + `/review/${paper.job_id}`);
+                setMenuOpen(false);
+              }, disabled: !paper.job_id },
             ].map(item => (
-              <button key={item.label} onClick={item.action}
-                className="w-full px-4 py-2 text-[12px] flex items-center gap-2 font-medium transition-colors"
+              <button key={item.label} onClick={item.action} disabled={item.disabled}
+                className="w-full px-4 py-2 text-[12px] flex items-center gap-2 font-medium transition-colors disabled:opacity-40"
                 style={{ color: 'rgba(165,180,252,0.7)' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.1)')}
+                onMouseEnter={e => !item.disabled && (e.currentTarget.style.background = 'rgba(99,102,241,0.1)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                 {item.icon} {item.label}
               </button>
             ))}
             <div style={{ borderTop: '1px solid rgba(99,102,241,0.12)', margin: '2px 0' }} />
-            <button className="w-full px-4 py-2 text-[12px] flex items-center gap-2 font-medium text-red-400/80 transition-colors"
+            <button onClick={handleDelete} disabled={deleting}
+              className="w-full px-4 py-2 text-[12px] flex items-center gap-2 font-medium text-red-400/80 transition-colors disabled:opacity-40"
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.08)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-              <Trash2 size={12} /> Delete
+              <Trash2 size={12} /> {deleting ? 'Deleting…' : 'Delete'}
             </button>
           </div>
         )}

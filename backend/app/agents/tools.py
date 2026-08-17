@@ -64,8 +64,11 @@ def make_retrieval_tool(paper_id: str, trace_sink: Optional[List[dict]] = None):
 
 def _strip_fences(text: str) -> str:
     import re
+    # Strip <think>...</think> blocks from reasoning models (e.g. qwen3, deepseek-r1)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     text = re.sub(r"```(?:json)?\s*", "", text)
     text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
+    return text.strip()
     return text.strip()
 
 

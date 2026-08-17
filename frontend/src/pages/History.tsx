@@ -14,7 +14,7 @@ function timeAgo(isoDate: string): string {
   if (hrs < 24)  return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   if (days < 30) return `${days}d ago`
-  return new Date(isoDate).toLocaleDateString()
+return new Date(isoDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 type Filter = 'all' | 'Accept' | 'Minor Revision' | 'Major Revision' | 'Reject' | 'processing'

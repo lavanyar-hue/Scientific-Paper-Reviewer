@@ -117,6 +117,13 @@ def get_activity(
         .all()
     )
     for p in papers:
+        # Find the latest job for this paper to get job_id for linking
+        latest_job = (
+            db.query(ReviewJob)
+            .filter(ReviewJob.paper_id == p.id)
+            .order_by(ReviewJob.created_at.desc())
+            .first()
+        )
         events.append(
             {
                 "id": f"paper-{p.id}",
@@ -127,6 +134,7 @@ def get_activity(
                 "subtitle": p.title or "Untitled Paper",
                 "user": current_user.username,
                 "timestamp": p.created_at.isoformat(),
+                "job_id": latest_job.id if latest_job else None,
             }
         )
 
@@ -152,6 +160,7 @@ def get_activity(
                 "subtitle": paper_title,
                 "user": "System",
                 "timestamp": job.created_at.isoformat(),
+                "job_id": job.id,
             }
         )
 
@@ -205,9 +214,16 @@ def get_activity(
 
     for event in events[:80]:  # cap at 80
         dt = datetime.fromisoformat(event["timestamp"]).date()
-        if dt == today:
+        # Convert UTC to IST (UTC+5:30) for grouping
+        from datetime import timezone, timedelta as _td
+        ist_offset = _td(hours=5, minutes=30)
+        ist_dt = datetime.fromisoformat(event["timestamp"]).replace(tzinfo=timezone.utc) + ist_offset
+        dt = ist_dt.date()
+        today_ist = (datetime.utcnow().replace(tzinfo=timezone.utc) + ist_offset).date()
+        yesterday_ist = today_ist - timedelta(days=1)
+        if dt == today_ist:
             label = "Today"
-        elif dt == yesterday:
+        elif dt == yesterday_ist:
             label = "Yesterday"
         else:
             label = dt.strftime("%b %d")

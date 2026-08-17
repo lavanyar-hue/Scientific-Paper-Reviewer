@@ -2,11 +2,11 @@
 LLM client factory for PaperAI.
 
 Reads model assignments from environment variables at CALL TIME (not import
-time) so .env is already loaded. Defaults to Groq llama-3.3-70b-versatile
+time) so .env is already loaded. Defaults to Groq meta-llama/llama-4-scout-17b-16e-instruct
 which is free and fast — no OpenAI key required by default.
 
 Supported providers:
-  groq      — llama-3.3-70b-versatile, llama-3.1-8b-instant  (GROQ_API_KEY)
+  groq      — meta-llama/llama-4-scout-17b-16e-instruct, meta-llama/llama-4-maverick-17b-128e-instruct  (GROQ_API_KEY)
   nvidia    — nvidia: prefix  (NVIDIA_API_KEY_FAST / _REASON / _ULTRA)
   anthropic — claude-*        (ANTHROPIC_API_KEY)
   openai    — gpt-*           (OPENAI_API_KEY)
@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 def _defaults() -> dict:
     """Read model defaults from env at call time — not at import time."""
     return {
-        "group_a_primary": os.getenv("AGENT_MODEL_GROUP_A_PRIMARY", "llama-3.3-70b-versatile"),
-        "group_a_critic":  os.getenv("AGENT_MODEL_GROUP_A_CRITIC",  "llama-3.3-70b-versatile"),
-        "group_b_primary": os.getenv("AGENT_MODEL_GROUP_B_PRIMARY", "llama-3.3-70b-versatile"),
-        "group_b_critic":  os.getenv("AGENT_MODEL_GROUP_B_CRITIC",  "llama-3.3-70b-versatile"),
-        "synthesizer":     os.getenv("AGENT_MODEL_SYNTHESIZER",     "llama-3.3-70b-versatile"),
+        "group_a_primary": os.getenv("AGENT_MODEL_GROUP_A_PRIMARY", "openai/gpt-oss-20b"),
+        "group_a_critic":  os.getenv("AGENT_MODEL_GROUP_A_CRITIC",  "qwen/qwen3.6-27b"),
+        "group_b_primary": os.getenv("AGENT_MODEL_GROUP_B_PRIMARY", "qwen/qwen3.6-27b"),
+        "group_b_critic":  os.getenv("AGENT_MODEL_GROUP_B_CRITIC",  "openai/gpt-oss-20b"),
+        "synthesizer":     os.getenv("AGENT_MODEL_SYNTHESIZER",     "qwen/qwen3.6-27b"),
     }
 
 
@@ -48,7 +48,7 @@ class _LazyDefaults(dict):
 
 
 DEFAULTS = _LazyDefaults()
-FALLBACK_CHAIN = ["llama-3.3-70b-versatile"]  # Groq always available
+FALLBACK_CHAIN = ["openai/gpt-oss-20b"]  # Groq always available
 
 
 def _provider_from_model(model: str) -> str:
@@ -73,7 +73,10 @@ def _provider_from_model(model: str) -> str:
     # Groq models by name
     if any(x in m for x in ["llama-3.3-70b", "llama-3.1-8b", "llama-3.1-70b",
                               "llama-3.2", "llama-3-70b", "mixtral-8x7b",
-                              "gemma2-9b", "llama3-", "whisper"]):
+                              "gemma2-9b", "llama3-", "whisper",
+                              "llama-4-scout", "llama-4-maverick",
+                              "meta-llama/", "openai/gpt-oss",
+                              "qwen/qwen", "groq/compound"]):
         return "groq"
     if "llama3" in m or "ollama" in m:
         return "ollama"

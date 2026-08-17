@@ -209,3 +209,28 @@ async def list_papers(
             for p in papers
         ]
     }
+
+
+@router.delete("/{paper_id}")
+async def delete_paper(
+    paper_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(_get_optional_user),
+):
+    """Delete a paper and all its associated review jobs."""
+    if not current_user:
+        raise HTTPException(401, "Authentication required.")
+    paper = db.query(Paper).filter(Paper.id == paper_id, Paper.user_id == current_user.id).first()
+    if not paper:
+        raise HTTPException(404, "Paper not found or access denied.")
+
+    # Delete associated review jobs (cascades to agent responses via DB relationships)
+    from app.models import ReviewJob, AgentResponse
+    jobs = db.query(ReviewJob).filter(ReviewJob.paper_id == paper_id).all()
+    for job in jobs:
+        db.query(AgentResponse).filter(AgentResponse.job_id == job.id).delete()
+        db.delete(job)
+
+    db.delete(paper)
+    db.commit()
+    return {"ok": True, "message": "Paper deleted."}

@@ -120,6 +120,9 @@ export default function ProgressTracker({ responses, jobStatus }: { responses: A
                       <span className="text-[10px] text-indigo-400/50 font-normal">/10</span>
                     </span>
                   )}
+                  {status === 'done' && review?.scores?.overall == null && (
+                    <span className="text-[11px] text-indigo-400/30">—/10</span>
+                  )}
                   {status === 'done' && review?.recommendation && (
                     <RecommendationBadge rec={review.recommendation} size="sm" />
                   )}

@@ -116,7 +116,7 @@ def test_groq_model_routes_to_tool_loop(monkeypatch):
     monkeypatch.setattr(orchestrator, "AGENTIC_RAG_ENABLED", True)
     monkeypatch.setattr(orchestrator, "_paper_indexed", lambda paper_id: True)
 
-    path = orchestrator._resolve_path(_fake_state(), "group_b_primary", "llama-3.3-70b-versatile")
+    path = orchestrator._resolve_path(_fake_state(), "group_b_primary", "meta-llama/llama-4-scout-17b-16e-instruct")
     assert path == "tool_loop"
 
 

@@ -171,10 +171,11 @@ export default function Layout() {
                         };
                         return (
                           <TimelineItem key={event.id}
-                            time={new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            time={new Date(event.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                             icon={iconMap[event.icon] || <CheckCircle size={11} />}
                             iconBg={colorMap[event.color] || 'bg-slate-500'}
-                            title={event.title} subtitle={event.subtitle} user={event.user} isLast={isLast} />
+                            title={event.title} subtitle={event.subtitle} user={event.user}
+                            isLast={isLast} jobId={event.job_id} />
                         );
                       })}
                     </TimelineGroup>
@@ -192,7 +193,7 @@ export default function Layout() {
 
             {/* RIGHT: AI Chat Panel */}
             {chatOpen && (
-              <div className="hidden lg:block">
+              <div className="hidden lg:flex flex-shrink-0">
                 <AIChatPanel jobId={chatJobId} paperId={lastPaperId} onClose={() => setChatOpen(false)} />
               </div>
             )}
@@ -230,6 +231,8 @@ function AIChatPanel({ jobId, paperId, onClose }: { jobId: string | null; paperI
   const [streamText, setStreamText] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
 
   // Persist messages to localStorage on change
   useEffect(() => {
@@ -253,14 +256,34 @@ function AIChatPanel({ jobId, paperId, onClose }: { jobId: string | null; paperI
     }
   }, [hasPaperContext]);
 
+  // Only auto-scroll if user is already near the bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!userScrolledUp.current || isNearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, streamText]);
+
+  // When user sends a message, always scroll to bottom
+  const scrollToBottom = () => {
+    userScrolledUp.current = false;
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    userScrolledUp.current = !isNearBottom;
+  };
 
   const send = () => {
     const text = input.trim();
     if (!text || streaming) return;
     setInput('');
+    scrollToBottom();
 
     const userMsg: ChatMsg = { role: 'user', content: text };
     const newHistory = [...messages, userMsg];
@@ -335,7 +358,7 @@ function AIChatPanel({ jobId, paperId, onClose }: { jobId: string | null; paperI
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" style={{ scrollbarColor: '#252840 transparent' }}>
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" style={{ scrollbarColor: '#252840 transparent' }}>
         {messages.map((msg, i) => (
           <ChatBubble key={i} msg={msg} />
         ))}
@@ -572,9 +595,11 @@ function TimelineGroup({ date, children }: { date: string; children: React.React
     </div>
   );
 }
-function TimelineItem({ time, icon, iconBg, title, subtitle, user, isLast }: any) {
+function TimelineItem({ time, icon, iconBg, title, subtitle, user, isLast, jobId }: any) {
+  const navigate = useNavigate();
   return (
-    <div className="relative pl-6 pb-4">
+    <div className={`relative pl-6 pb-4 ${jobId ? 'cursor-pointer' : ''}`}
+      onClick={() => jobId && navigate(`/review/${jobId}`)}>
       {!isLast && <div className="absolute left-[10px] top-5 bottom-0 w-px" style={{ background: 'rgba(99,102,241,0.15)' }} />}
       <div className="absolute left-0 top-1 w-5 h-5 rounded-full flex items-center justify-center z-10"
         style={{ background: '#13151f', border: '1px solid rgba(99,102,241,0.2)' }}>
@@ -582,7 +607,7 @@ function TimelineItem({ time, icon, iconBg, title, subtitle, user, isLast }: any
       </div>
       <div className="rounded-lg p-2 transition-colors"
         style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.1)' }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.1)')}
+        onMouseEnter={e => (e.currentTarget.style.background = jobId ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.1)')}
         onMouseLeave={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.05)')}>
         <div className="flex items-center gap-2">
           <div className={`w-7 h-7 rounded-md ${iconBg} text-white flex items-center justify-center flex-shrink-0 opacity-80`}>{icon}</div>

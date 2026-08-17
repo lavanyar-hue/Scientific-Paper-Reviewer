@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, FileText, Users, Tag, Calendar, ExternalLink,
   BookOpen, ChevronDown, ChevronUp, Cpu, Zap, CheckCircle2,
-  AlertTriangle, Clock, Loader2, Timer,
+  AlertTriangle, Clock, Loader2, Timer, Square,
 } from 'lucide-react'
-import { getReview, type ReviewJob, type AgentResponse, type FinalReview } from '../api'
+import { getReview, cancelReview, type ReviewJob, type AgentResponse, type FinalReview } from '../api'
 import ProgressTracker from '../components/ProgressTracker'
 import GroupReviewPanel from '../components/GroupReviewPanel'
 import FinalVerdict from '../components/FinalVerdict'
@@ -25,9 +25,11 @@ const AGENT_PIPELINE = [
 
 export default function ReviewDashboard() {
   const { jobId } = useParams<{ jobId: string }>()
+  const navigate = useNavigate()
   const [job, setJob]               = useState<ReviewJob | null>(null)
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   const [showComparison, setShowComparison] = useState(false)
   const [abstractExpanded, setAbstractExpanded] = useState(false)
   const [timeEstimate, setTimeEstimate] = useState<{ display: string; estimated_seconds: number } | null>(null)
@@ -127,10 +129,24 @@ export default function ReviewDashboard() {
     setTimeout(() => comparisonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
 
+  const handleCancel = async () => {
+    if (!jobId || cancelling) return
+    setCancelling(true)
+    try {
+      await cancelReview(jobId)
+      setJob(prev => prev ? { ...prev, status: 'failed', error_message: 'Cancelled by user.' } : prev)
+    } catch (e) {
+      // job may have finished between click and request — just poll
+      if (jobId) getReview(jobId).then(setJob).catch(() => {})
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   if (loading) return (
-    <div className="space-y-4 animate-pulse">
-      <div className="h-6 w-40 bg-slate-200 rounded" />
-      <div className="h-8 w-72 bg-slate-200 rounded" />
+    <div className="space-y-4">
+      <div className="h-6 w-40 rounded" style={{ background: 'rgba(99,102,241,0.15)' }} />
+      <div className="h-8 w-72 rounded" style={{ background: 'rgba(99,102,241,0.15)' }} />
       <SkeletonCard /><SkeletonCard />
     </div>
   )
@@ -168,6 +184,7 @@ export default function ReviewDashboard() {
         timeEstimate={timeEstimate} elapsedSeconds={elapsedSeconds}
         onShowComparison={scrollToComparison}
         onToggleComparison={() => setShowComparison(v => !v)}
+        onCancel={handleCancel} cancelling={cancelling}
       />
     </div>
   )
@@ -234,12 +251,12 @@ function PaperSection({ job, abstractExpanded, onToggleAbstract }:
             )}
             {p?.created_at && (
               <Chip icon={<Calendar className="w-3 h-3" />}
-                label={new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                label={new Date(p.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Kolkata' })}
                 color="slate" />
             )}
             {job.completed_at && (
               <Chip icon={<Clock className="w-3 h-3" />}
-                label={`Reviewed ${new Date(job.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                label={`Reviewed ${new Date(job.completed_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })}`}
                 color="green" />
             )}
           </div>
@@ -289,12 +306,13 @@ function Chip({ icon, label, color }: { icon: React.ReactNode; label: string; co
 }
 
 // ── AI Analysis Section ───────────────────────────────────────────────────────
-function AiSection({ job, doneCount, bothCriticsDone, showComparison, comparisonRef, onShowComparison, onToggleComparison, timeEstimate, elapsedSeconds }: {
+function AiSection({ job, doneCount, bothCriticsDone, showComparison, comparisonRef, onShowComparison, onToggleComparison, timeEstimate, elapsedSeconds, onCancel, cancelling }: {
   job: ReviewJob; doneCount: number; bothCriticsDone: boolean;
   showComparison: boolean; comparisonRef: React.RefObject<HTMLDivElement>;
   onShowComparison: () => void; onToggleComparison: () => void;
   timeEstimate: { display: string; estimated_seconds: number } | null;
   elapsedSeconds: number;
+  onCancel: () => void; cancelling: boolean;
 }) {
   const total     = 5
   const pct       = Math.round((doneCount / total) * 100)
@@ -366,6 +384,24 @@ function AiSection({ job, doneCount, bothCriticsDone, showComparison, comparison
             </div>
 
             <div className="flex items-center gap-4 flex-shrink-0">
+              {/* Stop button — only when running */}
+              {isRunning && (
+                <button
+                  onClick={onCancel}
+                  disabled={cancelling}
+                  title="Stop review"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                  style={{
+                    background: cancelling ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.15)',
+                    border: '1px solid rgba(239,68,68,0.4)',
+                    color: cancelling ? 'rgba(252,165,165,0.5)' : '#fca5a5',
+                    cursor: cancelling ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <Square size={11} className={cancelling ? 'opacity-50' : ''} />
+                  {cancelling ? 'Stopping…' : 'Stop'}
+                </button>
+              )}
               {/* Time estimate / elapsed */}
               {isRunning && (
                 <div className="text-right">
