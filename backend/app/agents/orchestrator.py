@@ -61,8 +61,8 @@ from app.utils import cost_tracker
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 3         # increased — handle rate limits
-RETRY_DELAY = 2         # base delay, doubles each retry
+MAX_RETRIES = 4         # more retries for rate limits
+RETRY_DELAY = 5         # base delay, doubles each retry — 5, 10, 20, 40s
 
 AGENTIC_RAG_ENABLED = os.getenv("AGENTIC_RAG_ENABLED", "true").lower() == "true"
 INDEPENDENT_AGENTS_MODE = os.getenv("INDEPENDENT_AGENTS_MODE", "false").lower() == "true"
@@ -98,6 +98,8 @@ class PaperLensState(TypedDict):
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _strip_fences(text: str) -> str:
+    # Strip <think>...</think> blocks from reasoning models (e.g. qwen3)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     text = re.sub(r"```(?:json)?\s*", "", text)
     text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
     return text.strip()
@@ -109,6 +111,12 @@ def _parse_llm_json(raw: str) -> Dict[str, Any]:
     if match:
         cleaned = match.group(0)
     return json.loads(cleaned)
+
+
+def _extract_retry_after(exc_str: str) -> float:
+    """Extract suggested wait time from Groq rate limit error messages."""
+    m = re.search(r"try again in (\d+(?:\.\d+)?)s", exc_str, re.IGNORECASE)
+    return float(m.group(1)) + 2 if m else 20.0
 
 
 def _call_llm(role: str, override_model: Optional[str], system_text: str, human_text: str, job_id: Optional[str] = None) -> tuple:
@@ -132,20 +140,20 @@ def _call_llm(role: str, override_model: Optional[str], system_text: str, human_
             last_exc = exc
             err_str = str(exc).lower()
             wait = RETRY_DELAY * (2 ** attempt)
-            if "rate" in err_str or "429" in err_str or "quota" in err_str:
-                wait = max(wait, 15)
-                logger.warning("Rate limit hit (role=%s attempt=%d), waiting %ds", role, attempt + 1, wait)
+            if "rate" in err_str or "429" in err_str or "quota" in err_str or "tpm" in err_str:
+                wait = max(wait, _extract_retry_after(str(exc)))
+                logger.warning("Rate limit hit (role=%s attempt=%d), waiting %.0fs", role, attempt + 1, wait)
             elif "empty" in err_str or "column 1" in err_str or "expecting value" in err_str:
-                # Empty response from NVIDIA — switch to Groq fallback immediately
-                logger.warning("Empty/invalid response from %s (role=%s) — trying Groq fallback", model_name, role)
+                # Empty response — switch to fallback model immediately
+                logger.warning("Empty/invalid response from %s (role=%s) — trying fallback", model_name, role)
                 try:
-                    groq_llm, groq_model = get_model_for_role(role, "llama-3.3-70b-versatile")
+                    groq_llm, groq_model = get_model_for_role(role, "qwen/qwen3.6-27b")
                     response = groq_llm.invoke(messages)
                     parsed = _parse_llm_json(response.content)
-                    logger.info("Groq fallback succeeded for role=%s", role)
+                    logger.info("Fallback succeeded for role=%s", role)
                     return parsed, groq_model
                 except Exception as groq_exc:
-                    logger.warning("Groq fallback also failed: %s", groq_exc)
+                    logger.warning("Fallback also failed: %s", groq_exc)
                     last_exc = groq_exc
             else:
                 logger.warning("LLM call failed (role=%s attempt=%d): %s", role, attempt + 1, exc)
@@ -167,9 +175,9 @@ def _call_llm_agentic(role: str, override_model: Optional[str], system_text: str
             last_exc = exc
             err_str = str(exc).lower()
             wait = RETRY_DELAY * (2 ** attempt)
-            if "rate" in err_str or "429" in err_str or "quota" in err_str:
-                wait = max(wait, 15)
-                logger.warning("Rate limit hit (role=%s attempt=%d), waiting %ds", role, attempt + 1, wait)
+            if "rate" in err_str or "429" in err_str or "quota" in err_str or "tpm" in err_str:
+                wait = max(wait, _extract_retry_after(str(exc)))
+                logger.warning("Rate limit hit (role=%s attempt=%d), waiting %.0fs", role, attempt + 1, wait)
             else:
                 logger.warning("Agentic LLM call failed (role=%s attempt=%d): %s", role, attempt + 1, exc)
             if attempt < MAX_RETRIES:
@@ -215,7 +223,9 @@ def _make_primary_node(group: str):
     role = f"group_{group.lower()}_primary"
 
     def node(state: PaperLensState) -> dict:
-        # No stagger needed - rate limit handled by exponential backoff retries
+        # Stagger Group B by 3s to spread token usage and avoid simultaneous 429s
+        if group == "B":
+            time.sleep(3)
         override = state["model_config"].get(role)
         system = _system(state)
         path = _resolve_path(state, role, override)
@@ -364,9 +374,10 @@ def node_synthesize(state: PaperLensState) -> dict:
     role = "synthesizer"
     override = state["model_config"].get(role)
     system = _system(state)
-    synth_text = state["paper_full_text"][:5000]
-    if len(state["paper_full_text"]) > 5000:
-        synth_text += "\n\n[...truncated...]"
+    # Limit synthesizer input to 3000 chars for speed — it mainly needs the two reviews, not full text
+    synth_text = state["paper_full_text"][:3000]
+    if len(state["paper_full_text"]) > 3000:
+        synth_text += "\n\n[...truncated for speed...]"
     human = SYNTHESIZER_PROMPT.format(
         paper_full_text=synth_text,
         group_a_review=json.dumps(state.get("group_a_critic") or state.get("group_a_primary") or {}, indent=2),
