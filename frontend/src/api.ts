@@ -7,12 +7,11 @@
 import axios from 'axios';
 
 // Detect if we're running on Vercel (production) with no backend configured
-const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-
-// Warn in console if running in production without API base set
-if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && !import.meta.env.VITE_API_BASE) {
-  console.warn('[PaperLens] VITE_API_BASE not set — falling back to https://paperlens-kr0g.onrender.com');
-}
+const PROD_BACKEND = 'https://scientific-paper-reviewer.onrender.com';
+const BASE = import.meta.env.VITE_API_BASE ||
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? PROD_BACKEND
+    : 'http://localhost:8000');
 
 const api = axios.create({ baseURL: BASE });
 
