@@ -76,12 +76,27 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+async def _keep_alive():
+    """Ping self every 10 minutes to prevent Render free tier from spinning down."""
+    import httpx
+    await asyncio.sleep(30)  # wait for full startup first
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.get("https://scientific-paper-reviewer.onrender.com/ping", timeout=10)
+        except Exception:
+            pass
+        await asyncio.sleep(600)  # every 10 minutes
+
+
 @app.on_event("startup")
 async def startup_event():
     # Store the main event loop so background threads can broadcast WebSocket messages
     from app.ws_manager import set_main_loop
     set_main_loop(asyncio.get_event_loop())
     create_tables()
+    # Keep Render free tier alive
+    asyncio.create_task(_keep_alive())
 
 
 @app.get("/health")
