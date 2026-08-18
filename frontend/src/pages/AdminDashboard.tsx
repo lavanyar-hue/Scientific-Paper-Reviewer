@@ -19,7 +19,7 @@ export default function AdminDashboard() {
       const [statsRes] = await Promise.all([getAdminStats()]);
       setStats(statsRes);
       // Use real daily reviews from backend instead of fake data
-      const weekly = statsRes.daily_reviews || [];
+      const weekly = (statsRes as any).daily_reviews || [];
       if (weekly.length === 0) {
         const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
         weekly.push(...days.map(name => ({ name, reviews: 0 })));

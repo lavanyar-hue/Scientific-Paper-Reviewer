@@ -96,11 +96,11 @@ function AgentCard({ ar }: { ar: AgentResponse }) {
           )}
 
           <div className="grid grid-cols-1 gap-3">
-            {review.strengths?.length > 0 && (
-              <PointList title="Strengths" items={review.strengths} color="green" marker="+" />
+            {(review.strengths?.length ?? 0) > 0 && (
+              <PointList title="Strengths" items={review.strengths ?? []} color="green" marker="+" />
             )}
-            {review.weaknesses?.length > 0 && (
-              <PointList title="Weaknesses" items={review.weaknesses} color="red" marker="−" />
+            {(review.weaknesses?.length ?? 0) > 0 && (
+              <PointList title="Weaknesses" items={review.weaknesses ?? []} color="red" marker="−" />
             )}
           </div>
 
@@ -111,11 +111,11 @@ function AgentCard({ ar }: { ar: AgentResponse }) {
             </div>
           )}
 
-          {review.questions_for_authors?.length > 0 && (
+          {(review.questions_for_authors?.length ?? 0) > 0 && (
             <div>
               <p className="text-[9px] font-black text-indigo-400/40 uppercase tracking-widest mb-2">Questions for Authors</p>
               <ul className="space-y-1.5">
-                {review.questions_for_authors.map((q: string, i: number) => (
+                {(review.questions_for_authors ?? []).map((q: string, i: number) => (
                   <li key={i} className="flex gap-2 text-xs" style={{ color: 'rgba(165,180,252,0.5)' }}>
                     <MessageSquare className="w-3.5 h-3.5 text-indigo-500/50 flex-shrink-0 mt-0.5" />
                     {q}
