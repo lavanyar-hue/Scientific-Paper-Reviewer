@@ -17,7 +17,6 @@ import re
 from typing import List, Optional, TypedDict
 
 import chromadb
-from chromadb.utils import embedding_functions
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logger = logging.getLogger(__name__)
@@ -127,7 +126,15 @@ def _get_client():
 def _get_embedding_fn():
     global _embedding_fn
     if _embedding_fn is None:
-        _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL_NAME)
+        try:
+            # Try SentenceTransformer if available (local dev)
+            from chromadb.utils import embedding_functions
+            _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name=EMBEDDING_MODEL_NAME
+            )
+        except Exception:
+            # Fall back to chromadb's default embedding (no torch needed)
+            _embedding_fn = chromadb.utils.embedding_functions.DefaultEmbeddingFunction()
     return _embedding_fn
 
 

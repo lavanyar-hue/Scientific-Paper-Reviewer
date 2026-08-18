@@ -35,8 +35,10 @@ python-dotenv==1.0.1
 tenacity==8.4.2
 
 # Vector store + embeddings
-chromadb==0.5.5
-sentence-transformers==3.0.1
+# Using newer chromadb (prebuilt wheel, no C++ build needed)
+# sentence-transformers removed — too heavy for free tier (pulls torch ~2GB)
+# Using chromadb's default embedding function instead
+chromadb==0.6.3
 
 # Auth
 pyjwt==2.8.0
