@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 def _defaults() -> dict:
     """Read model defaults from env at call time — not at import time."""
     return {
-        "group_a_primary": os.getenv("AGENT_MODEL_GROUP_A_PRIMARY", "openai/gpt-oss-20b"),
-        "group_a_critic":  os.getenv("AGENT_MODEL_GROUP_A_CRITIC",  "qwen/qwen3.6-27b"),
-        "group_b_primary": os.getenv("AGENT_MODEL_GROUP_B_PRIMARY", "qwen/qwen3.6-27b"),
-        "group_b_critic":  os.getenv("AGENT_MODEL_GROUP_B_CRITIC",  "openai/gpt-oss-20b"),
-        "synthesizer":     os.getenv("AGENT_MODEL_SYNTHESIZER",     "qwen/qwen3.6-27b"),
+        "group_a_primary": os.getenv("AGENT_MODEL_GROUP_A_PRIMARY", "groq:llama3-70b-8192"),
+        "group_a_critic":  os.getenv("AGENT_MODEL_GROUP_A_CRITIC",  "groq:llama3-70b-8192"),
+        "group_b_primary": os.getenv("AGENT_MODEL_GROUP_B_PRIMARY", "groq:llama3-70b-8192"),
+        "group_b_critic":  os.getenv("AGENT_MODEL_GROUP_B_CRITIC",  "groq:llama3-70b-8192"),
+        "synthesizer":     os.getenv("AGENT_MODEL_SYNTHESIZER",     "groq:llama3-70b-8192"),
     }
 
 
@@ -48,7 +48,7 @@ class _LazyDefaults(dict):
 
 
 DEFAULTS = _LazyDefaults()
-FALLBACK_CHAIN = ["openai/gpt-oss-20b"]  # Groq always available
+FALLBACK_CHAIN = ["groq:llama3-70b-8192"]  # Groq always available
 
 
 def _provider_from_model(model: str) -> str:

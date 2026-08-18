@@ -147,7 +147,7 @@ def _call_llm(role: str, override_model: Optional[str], system_text: str, human_
                 # Empty response — switch to fallback model immediately
                 logger.warning("Empty/invalid response from %s (role=%s) — trying fallback", model_name, role)
                 try:
-                    groq_llm, groq_model = get_model_for_role(role, "qwen/qwen3.6-27b")
+                    groq_llm, groq_model = get_model_for_role(role, "groq:llama3-70b-8192")
                     response = groq_llm.invoke(messages)
                     parsed = _parse_llm_json(response.content)
                     logger.info("Fallback succeeded for role=%s", role)
